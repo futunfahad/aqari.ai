@@ -1,0 +1,2463 @@
+---
+title: "Machine Learning Meets Riyadh Real Estate: An Empirical Perspective"
+author: "ai.عقاري"
+date: "2024-11-13"
+output:
+  html_document: default
+  pdf_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE,error = TRUE)
+```
+
+## Machine Learning Meets Riyadh Real Estate: An Empirical Perspective!
+
+Our project aims to analyze the real estate market in Saudi Arabia,
+specifically in the city of Riyadh, focusing on understanding the price
+differences between residential and commercial properties as well as
+various residential units across different areas of the city. Through
+this project, we collect comprehensive data on rental prices in Riyadh,
+categorized by region, and investigate the reasons behind price
+fluctuations and trends in Saudi Arabia's real estate market. This
+analysis provides investors and renters with a clear overview of price
+trends and market variations based on location and property type,
+ultimately supporting informed investment decisions.
+
+**Data collection**
+
+The data was collected from the official Aqar website using web scraping
+through the Aqar API. We utilized Python's requests library to create a
+request header that mimics the official Aqar website, enabling us to
+access the data.
+
+![Alt Text](metadata.png)
+
+This dataset provides detailed information about property listings,
+including unique identifiers (id), location (city, district,
+location.lat, location.ing), and attributes like price, area, age, and
+category (property type). It also includes amenities such as WC,
+furnished, pool, and lift, along with user details (user.name,
+user.review, user.am verified). Binary columns indicate the availability
+of features like water, electricity, and drainage, while room counts
+(beds, kitchen, living) provide additional context. This structured
+metadata supports comprehensive analysis of property features and user
+preferences. - these methods may be unethical as they access data
+without explicit permission, potentially violating the website's terms
+of service.
+
+```{r install packeges}
+
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(readr)
+library(gbm)
+library(randomForest)
+library(caret)
+library(gridExtra)
+library(showtext)
+library(tidyr)
+
+library(knitr)
+
+
+```
+
+### Hypotheses
+
+**Focusing on The Area, number of rooms and their kind, and the location
+is sufficient to make a predictive model that predict the price range of
+the property.**
+
+```{r mozn}
+#import pandas as pd
+#from sklearn.model_selection import train_test_split, RandomizedSearchCV
+#from sklearn.ensemble import GradientBoostingRegressor
+#from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+#import numpy as np
+#import gradio as gr
+#import joblib
+
+# Load the dataset
+#df = pd.read_csv('#combine.csv')
+
+# Define features and target variable
+#X = df[['livings', 'ketchen', 'rooms', 'wc', 'area', 'category', 'encoded_direction']]
+#y = df['price']
+
+# Split the dataset into training and testing sets
+#X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Hyperparameter tuning using RandomizedSearchCV
+#param_grid = {
+    #'n_estimators': [100, 200, 300],
+   # 'learning_rate': [0.01, 0.05, 0.1, 0.2],
+   # 'max_depth': [3, 5, 7]
+#}
+
+# Initialize the model
+#model = GradientBoostingRegressor(random_state=42)
+
+# Perform randomized search with cross-validation
+#random_search = RandomizedSearchCV(model, param_grid, n_iter=10, scoring='neg_mean_absolute_error', cv=5, random_state=42)
+#random_search.fit(X_train, y_train)
+
+# Best model after hyperparameter tuning
+#best_model = random_search.best_estimator_
+
+# Train the best model
+#best_model.fit(X_train, y_train)
+
+# Quantile Regression to predict price range (lower and upper bounds)
+#lower_model = GradientBoostingRegressor(loss="quantile", alpha=0.1, random_state=42)
+#upper_model = GradientBoostingRegressor(loss="quantile", alpha=0.9, random_state=42)
+
+# Train the quantile models
+#lower_model.fit(X_train, y_train)
+#upper_model.fit(X_train, y_train)
+
+# Save the best model and quantile models
+#joblib.dump(best_model, "Best_Gradient_Model.joblib")
+#joblib.dump(lower_model, "Lower_Quantile_Model.joblib")
+#joblib.dump(upper_model, "Upper_Quantile_Model.joblib")
+
+# Make predictions for the test set
+#y_pred = best_model.predict(X_test)
+#lower_pred = lower_model.predict(X_test)
+#upper_pred = upper_model.predict(X_test)
+
+# Calculate the accuracy within the predicted range
+#within_range = (y_test >= lower_pred) & (y_test <= upper_pred)
+#range_accuracy = within_range.mean() * 100  # Convert to percentage
+
+#print(f"Accuracy within predicted range: {range_accuracy:.2f}%")'''
+```
+
+**+++++++++** ![Alt Text](result.png)
+
+-   The results support the hypothesis that focusing on property area,
+    room count and type, and location can effectively predict property
+    price range. using a Gradient Boosting Regressor The model achieved
+    an accuracy of 79.2%, highlighting its effectiveness in capturing
+    key determinants of pricing trends.
+    ------------------------------------------------- **As properties
+    age, the impact of age on price is moderated by other factors like
+    area and location; older properties in high-demand locations retain
+    value better than those in less desirable areas**
+
+```{r leyan1}
+akar2 <- read_csv("akar2024.csv")
+
+remove_outliers <- function(data, columns) {
+  for (column in columns) {
+
+    Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+    IQR_value <- Q3 - Q1
+
+
+    lower_bound <- Q1 - 1.5 * IQR_value
+    upper_bound <- Q3 + 1.5 * IQR_value
+
+
+    data <- data %>%
+      filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+  }
+
+  return(data)
+}
+
+city_data <- akar2 %>%
+  filter(city == "الرياض")
+
+city_data_no_outliers <- remove_outliers(city_data, c("age", "price"))
+head(city_data_no_outliers)
+
+top_5_categories <- city_data_no_outliers %>%
+  count(category, sort = TRUE) %>%
+  slice_head(n = 5)
+
+
+city_data2<- city_data %>%
+  filter(category %in% c(22, 3, 6)) %>%
+  select(category, price, age, district, direction, area)
+
+  city_data2 <- city_data2 %>%
+  mutate(category = as.character(category)) %>%
+  mutate(category = case_when(
+    category == "3" ~ "فيلا للبيع",
+    category == "6" ~ "شقه للبيع",
+    category == "22" ~ "دور للبيع",
+    TRUE ~ category
+  ))
+  
+  city_data2_no_outliers <- remove_outliers(city_data2, c( "price"))
+head(city_data2_no_outliers)
+
+
+
+```
+
+**the first part of the hypothesis (As properties age, the impact of age
+on price is moderated by other factors like area and location for
+sale)**
+
+```{r leyan2}
+
+
+# Function to generate plots for age impact analysis
+property_age_analysis <- function(data, category) {
+  # Filter data for the specific category and select relevant columns
+data <- data %>%
+    mutate(age_group = case_when(
+      age <= 2 ~ "0-2 years",
+      age <= 4 ~ "2-4 years",
+      age <= 6 ~ "4-6 years",
+      age <= 8 ~ "6-8 years",
+      age <= 10 ~ "8-10 years",
+      age <= 12 ~ "10-12 years",
+      age <= 14 ~ "12-14 years",
+      age <= 16 ~ "14-16 years",
+      age <= 18 ~ "16-18 years",
+      age <= 20 ~ "18-20 years",
+      age <= 22 ~ "20-22 years",
+      age <= 24 ~ "22-24 years",
+      age <= 26 ~ "24-26 years",
+      age <= 28 ~ "26-28 years",
+      age <= 30 ~ "28-30 years",
+      age > 30 ~ "30+ years"
+    ))
+
+category_data <- data %>%
+    filter(category == !!rlang::enquo(category)) %>%
+    select(category, price, age, district, area, direction, age_group)
+
+
+  category_data <- na.omit(category_data)
+
+  demand_classification <- category_data %>%
+    group_by(district) %>%
+    summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop") %>%
+    mutate(demand = ifelse(avg_price >= median(avg_price, na.rm = TRUE), "طلب عالي", "طلب منخفض"))  
+
+
+  category_data <- category_data %>%
+    left_join(demand_classification %>% select(district, demand), by = "district")
+
+
+  summary_stats <- category_data %>%
+    group_by(demand, area, age) %>%
+    summarize(
+      mean_price = mean(price, na.rm = TRUE),
+      median_price = median(price, na.rm = TRUE),
+      count = n(),
+      .groups = "drop"
+    )
+print("Summary Statistics:")
+print(summary_stats)
+
+correlation_data <- category_data %>% 
+  mutate(
+    district_numeric = as.numeric(factor(district)),
+    direction_numeric = as.numeric(factor(direction))
+  ) %>% 
+  select(price, age, area, district_numeric, direction_numeric)
+
+correlation_matrix <- cor(correlation_data, use = "complete.obs")
+print("Correlation Matrix:")
+print(correlation_matrix)
+
+
+  linear_model <- lm(price ~ age + area + district, data = category_data)
+  print("Linear Regression Model Summary:")
+  print(summary(linear_model))
+
+
+  # Createing plots
+
+  # Plot 2: Bar Plot of Average Price by Age Group
+p2 <- ggplot(category_data %>% group_by(age_group) %>%
+                  summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop") %>%
+                  mutate(age_group = factor(age_group, levels = c("0-2 years", "2-4 years", "4-6 years", "6-8 years", "8-10 years", "10-12 years", "12-14 years", "14-16 years", "16-18 years", "18-20 years", "20-22 years", "22-24 years", "24-26 years", "26-28 years", "28-30 years", "30+ years"))),
+                aes(x = age_group, y = avg_price)) +
+    geom_bar(stat = "identity", fill = "lightcoral", width = 0.7) +
+    labs(title = paste("السعر مقابل العمر  للفئة:", category),
+         x = "عمر العقار (بالسنوات)",
+         y = "السعر") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal() +
+    theme(text = element_text(family = "IBM")) +
+    coord_flip()
+
+print(p2)
+
+
+# Facet Grid Plot of Price vs Age by Direction
+p3 <- ggplot(category_data, aes(x = age, y = price)) +
+  geom_point(alpha = 0.7) +
+  labs(title = paste("السعر حسب العمر حسب الاتجاه للفئة:", category),
+       x = "عمر العقار",
+       y = "السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  facet_wrap(~ direction) +
+  theme_minimal() +
+  theme(text = element_text(family = "IBM"))
+
+print(p3)
+
+p5 <- ggplot(category_data %>% group_by(district, demand) %>%
+                  summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop") %>%
+                  top_n(50, avg_price),
+                  aes(x = reorder(district, avg_price), y = avg_price, fill = demand)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = paste("متوسط السعر حسب الحي للفئة:", category),
+         x = "الحي",
+         y = "متوسط السعر") +
+    scale_y_continuous(labels = scales::comma) +
+    scale_fill_manual(values = c("lightcoral", "grey")) +
+    coord_flip() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), text = element_text(family = "IBM"))
+
+print(p5)
+
+  # Bar Plot of Average Price by Direction
+ p6 <- ggplot(category_data %>% group_by(direction) %>%
+                summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop"),
+                aes(x = direction, y = avg_price, fill = direction)) +
+    geom_bar(stat = "identity", fill = "lightcoral") +
+    labs(title = paste("متوسط السعر حسب الاتجاه للفئة:", category),
+         x = "الاتجاه",
+         y = "متوسط السعر") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal() +
+    theme(text = element_text(family = "IBM"))
+
+  print(p6)
+
+}
+
+
+ 
+property_age_analysis(data = city_data2_no_outliers, category = "دور للبيع")
+
+property_age_analysis(data = city_data2_no_outliers, category = "فيلا للبيع")
+property_age_analysis(data = city_data2_no_outliers, category = "شقه للبيع")
+```
+
+**second part ( older properties in high-demand locations retain value
+better than those in less desirable areas for sale)**
+
+```{r leyan3}
+
+
+# Function to analyze and visualize property value retention based on demand
+property_demand_analysis <- function(data, category) {
+  # Filter and prepare data
+  data <- data %>%
+    filter(category == !!rlang::enquo(category)) %>%
+    select(category, price, age, district, area, direction) %>%
+    mutate(
+      age_group = case_when(
+        age <= 2 ~ "0-2 years",
+        age <= 4 ~ "2-4 years",
+        age <= 6 ~ "4-6 years",
+        age <= 8 ~ "6-8 years",
+        age <= 10 ~ "8-10 years",
+        age > 10 ~ "10+ years"
+      )
+    )
+
+  # Remove rows with any missing values
+  data <- na.omit(data)
+
+  demand_classification <- data %>%
+    group_by(district) %>%
+    summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop") %>%
+    mutate(demand = ifelse(avg_price >= median(avg_price, na.rm = TRUE), "طلب عالي", "طلب منخفض"))
+
+
+  # Merge demand classification back into the data
+  data <- data %>%
+    left_join(demand_classification %>% select(district, demand), by = "district")
+
+  # Step 1: Summary statistics
+  summary_stats <- data %>%
+    group_by(demand, age_group) %>%
+    summarize(
+      mean_price = mean(price, na.rm = TRUE),
+      median_price = median(price, na.rm = TRUE),
+      count = n(),
+      .groups = "drop"
+    )
+  print("Summary Statistics:")
+  print(summary_stats)
+
+  # Step 2: Correlation Analysis
+  correlation_data <- data %>%
+    mutate(district_numeric = as.numeric(factor(district))) %>%
+    select(price, age, area, district_numeric)
+  correlation_matrix <- cor(correlation_data, use = "complete.obs")
+  print("Correlation Matrix:")
+  print(correlation_matrix)
+
+  # Step 3: Linear Regression Model
+  linear_model <- lm(price ~ age + area + district, data = data)
+  print("Linear Regression Model Summary:")
+  print(summary(linear_model))
+
+  # Visualization
+
+  # Plot 2: Bar Plot of Average Price by Age Group and Demand
+  p2 <- ggplot(data %>% group_by(age_group, demand) %>%
+                 summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop"),
+               aes(x = age_group, y = avg_price, fill = demand)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "متوسط السعر حسب الفئة العمرية والطلب",
+         x = "الفئة العمرية",
+         y = "متوسط السعر") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal() +
+    theme(text = element_text(family = "IBM"))
+
+  print(p2)
+
+  # Plot 4: Line Plot of Average Price by Age Group, Faceted by Demand
+  p4 <- ggplot(data %>% group_by(age_group, demand) %>%
+                 summarize(avg_price = mean(price, na.rm = TRUE), .groups = "drop"),
+               aes(x = age_group, y = avg_price, group = demand, color = demand)) +
+    geom_line() +
+    geom_point() +
+    labs(title = "متوسط السعر حسب الفئة العمرية مفصولة بالطلب",
+         x = "الفئة العمرية",
+         y = "متوسط السعر") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal() +
+    theme(text = element_text(family = "IBM"))
+
+  print(p4)
+}
+property_demand_analysis(data = city_data2_no_outliers, category = "فيلا للبيع")
+
+property_demand_analysis(data = city_data2_no_outliers, category = "دور للبيع")
+
+property_demand_analysis(data = city_data2_no_outliers, category = "شقه للبيع")
+
+```
+
+```{r farah }
+# Filter data for Riyadh city
+dataset <- read_csv("akar2024.csv", locale = locale(encoding = "UTF-8"))
+data_riyadh <- dataset %>% 
+  filter(city == "الرياض")
+
+# Function to filter by category and rent period
+filter_data <- function(data, category_value, rent_period_value) {
+  data %>%
+    filter(category == category_value, rent_period == rent_period_value) #%>%
+   #filter(is.na(price) | is.na(age) | is.na(district))
+}
+
+# Filter data for category 5 and rent period 3 means renting villa for a year
+filtered_data5 <- filter_data(data_riyadh, 5, 3)
+# Filter data for category 1 and rent period 3 means renting apartment for a year
+filtered_data1 <- filter_data(data_riyadh, 1, 3)
+
+
+```
+
+```{r farah1 }
+# Remove rows with missing values in 'age' or 'price'
+filtered_data5_clean <- filtered_data5 %>%
+  filter(!is.na(age), !is.na(price))
+
+filtered_data1_clean <- filtered_data1 %>%
+  filter(!is.na(age), !is.na(price))
+
+# Check for extreme outliers in 'age' and 'price'
+# We'll use the IQR method to detect outliers for both 'age' and 'price'
+
+# IQR function to detect outliers
+IQR_outlier_removal <- function(data, column) {
+  Q1 <- quantile(data[[column]], 0.25)
+  Q3 <- quantile(data[[column]], 0.75)
+  IQR_value <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  data %>%
+    filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+}
+
+# Remove outliers from 'age' and 'price' using IQR
+filtered_data5_clean <- filtered_data5_clean %>%
+  IQR_outlier_removal("age") %>%
+  IQR_outlier_removal("price")
+
+filtered_data1_clean <- filtered_data1_clean %>%
+  IQR_outlier_removal("age") %>%
+  IQR_outlier_removal("price")
+
+
+# Create a boxplot for price by age
+ggplot(filtered_data5_clean, aes(x = factor(age), y = price)) +
+  geom_boxplot(fill = "lightcoral", color = "black") +
+  labs(title = "توزيع الاسعار حسب عمر العقار (فيلا للإيجار) ",
+       x = "عمر العقار",
+       y = "السعر بالريال") +
+  theme_minimal() +
+scale_y_continuous(labels = label_comma(),breaks = seq(0, max(filtered_data5_clean$price, na.rm = TRUE), by = 20000))
+
+ggplot(filtered_data1_clean, aes(x = factor(age), y = price)) +
+  geom_boxplot(fill = "lightcoral", color = "black") +
+  labs(title = "توزيع الاسعار حسب عمر العقار (شقة للإيجار)",
+       x = "عمر العقار",
+       y = "السعر بالريال") +
+  theme_minimal()+
+  scale_y_continuous(labels = label_comma(),
+    breaks = seq(0, max(filtered_data1_clean$price, na.rm = TRUE), by = 20000) # Adjust the step size as needed
+  )
+
+
+
+```
+
+```{r farah2 }
+# Select the top 5 districts with the most properties
+top_districts5 <- filtered_data5_clean %>%
+  count(district, sort = TRUE) %>%
+  top_n(5) %>%
+  pull(district)
+
+
+top_districts1 <- filtered_data1_clean %>%
+  count(district, sort = TRUE) %>%
+  top_n(5) %>%
+  pull(district)
+
+# Filter the data for these top districts
+filtered_top_districts5 <- filtered_data5_clean %>%
+  filter(district %in% top_districts5)
+
+filtered_top_districts1 <- filtered_data1_clean %>%
+  filter(district %in% top_districts1)
+
+# Create the faceted scatter plot with only the top districts
+ggplot(filtered_top_districts5, aes(x = age, y = price)) +
+  geom_point(color = "lightcoral") +
+  facet_wrap(~ district, scales = "free_y") +
+  labs(title = "السعر مقابل العمر حسب المنطقة (أفضل 5 مناطق في الفئة فلة للايجار)",
+       x = "عمر العقار",
+       y = "السعر بالريال") +
+  theme_minimal() +
+  scale_y_continuous(
+    labels = label_comma(),
+    breaks = seq(0, max(filtered_top_districts5$price, na.rm = TRUE), by = 40000))
+
+ggplot(filtered_top_districts1, aes(x = age, y = price)) +
+  geom_point(color = "lightcoral") +
+  facet_wrap(~ district, scales = "free_y") +
+  labs(title = "السعر مقابل العمر حسب المنطقة (أفضل 5 مناطق في الفئة شقة للايجار)",
+       x = "عمر العقار",
+       y = "السعر بالريال") +
+  theme_minimal() +
+  scale_y_continuous(
+    labels = label_comma(),
+    breaks = seq(0, max(filtered_top_districts1$price, na.rm = TRUE), by = 20000))
+
+```
+
+```{r farah3 }
+# Correlation between age and price
+correlation_age_price5 <- cor(filtered_data5_clean$age, filtered_data5_clean$price, use = "complete.obs")
+print(paste("Correlation between age and price in catagory 5: ", correlation_age_price5))
+print(paste("Correlation between age and price seems week in catgory 5 and does not effect renting much, age alone has minimal effect on price."))
+
+correlation_age_price1 <- cor(filtered_data1_clean$age, filtered_data1_clean$price, use = "complete.obs")
+print(paste("Correlation between age and price in catagory 1: ", correlation_age_price1))
+print(paste("Correlation between age and price seems week in catgory 1 and does not effect renting much, age alone has minimal effect on price."))
+```
+
+```{r farah4 }
+# Linear regression: Price ~ Age + Area + District
+# For category 5
+model_cat5 <- lm(price ~ age + area + district, data = filtered_data5_clean)
+summary_cat5 <- summary(model_cat5)
+
+cat("Category 5:\n")
+cat("District (location) and area strongly affect price, while age has a smaller and less significant influence on its own.\n")
+cat("Model Summary:\n")
+cat(paste0("Adjusted R-squared: ", round(summary_cat5$adj.r.squared, 4), "\n"))
+cat("Coefficients:\n")
+coeff_cat5 <- summary_cat5$coefficients
+print(coeff_cat5)
+
+cat("\n")
+
+# For category 1
+model_cat1 <- lm(price ~ age + area + district, data = filtered_data1_clean)
+summary_cat1 <- summary(model_cat1)
+
+cat("Category 1:\n")
+cat("Age and area are strong predictors, while certain districts have significant positive impacts on price, but many are weak predictors individually.\n")
+cat("Model Summary:\n")
+cat(paste0("Adjusted R-squared: ", round(summary_cat1$adj.r.squared, 4), "\n"))
+cat("Coefficients:\n")
+coeff_cat1 <- summary_cat1$coefficients
+print(coeff_cat1)
+```
+
+```{r farah5 }
+# Calculate median price for each district
+district_medians <- aggregate(price ~ district, data = filtered_data5_clean, median)
+
+district_medians <- aggregate(price ~ district, data = filtered_data1_clean, median)
+
+# Define high-demand as districts above the overall median price
+overall_median <- median(filtered_data5_clean$price)
+district_medians$demand_level <- ifelse(district_medians$price > overall_median, "عالي", "منخفض")
+
+overall_median <- median(filtered_data1_clean$price)
+district_medians$demand_level <- ifelse(district_medians$price > overall_median, "عالي", "منخفض")
+
+# Merge the demand_level back into your main dataset
+filtered_data5_clean <- merge(filtered_data5_clean, district_medians[, c("district", "demand_level")], by = "district")
+
+filtered_data1_clean <- merge(filtered_data1_clean, district_medians[, c("district", "demand_level")], by = "district")
+
+
+# Remove duplicate 'demand_level' columns by selecting only unique column names
+filtered_data5_clean<- filtered_data5_clean[, !duplicated(colnames(filtered_data5_clean))]
+filtered_data1_clean<- filtered_data1_clean[, !duplicated(colnames(filtered_data1_clean))]
+
+#colnames(filtered_data1_clean)
+```
+
+```{r farah6 }
+ggplot(filtered_data5_clean, aes(x = age, y = price, color = demand_level)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) + # Adds trend lines
+  labs(title = "تمثيل العمر مقابل السعر لفيلا للايجار",
+       x = "عمر العقار",
+       y = "سعر العقار",
+       color = "معدل الطلب") +
+  theme_minimal() +
+  theme(legend.position = "top")+
+   scale_y_continuous(
+    labels = label_comma(),
+    breaks = seq(0, max(filtered_data5_clean$price, na.rm = TRUE), by = 20000) # Adjust the step size as needed
+  )  
+
+
+ggplot(filtered_data1_clean, aes(x = age, y = price, color = demand_level)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE) + # Adds trend lines
+  labs(title = "تمثيل العمر مقابل السعر لشقة للايجار",
+      x = "عمر العقار",
+        y = "سعر العقار",
+       color = "معدل الطلب") +
+  theme_minimal() +
+  theme(legend.position = "top")+
+   scale_y_continuous(
+    labels = label_comma(),
+    breaks = seq(0, max(filtered_data1_clean$price, na.rm = TRUE), by = 20000) # Adjust the step size as needed
+  ) 
+  
+
+
+```
+
+-   For Renting Properties in Riyadh: After analyzing the data and
+    trying various plots and calculations, the hypothesis is partially
+    confirmed. While age itself is a weak predictor of price, area and
+    specific district locations significantly impact price, supporting
+    the idea that location moderates the effect of age. The weak
+    correlations indicate that age does not independently have a strong
+    influence on price, and if the analysis were applied to other
+    cities, it might yield different results. This finding highlights
+    the distinction between high and low demand locations in Riyadh.\*\*
+    **- For Buying Properties in Riyadh: The hypothesis is confirmed.
+    Older properties in high-demand areas retain more value, emphasizing
+    that the desirability of the location plays a critical role in
+    maintaining property value over time, even as the property ages.**
+
+**the number and type of rooms in a property (e.g., bedrooms, living
+rooms, etc.) significantly affect its attributes or value, but that this
+effect decreases beyond a certain point.**
+
+```{r mozn3 }
+df9 <- read_csv("akar2024.csv", locale = locale(encoding = "UTF-8"))
+df9 <- df9 %>%
+  filter(rent_period == 3.0, category == 1, city == "الرياض")%>% 
+  filter(!is.na(price) & !is.na(area))%>% 
+  mutate(price_per_meter=price/area)
+
+
+
+print(head(df9$price_per_meter))
+room_summary <- df9 %>%
+  group_by(beds, livings, rooms, wc) %>%
+
+  summarize(mean_price = mean(price_per_meter, na.rm = TRUE), 
+            price_per_meter = list(price_per_meter)) %>%
+  ungroup() %>%
+  na.omit()
+
+
+room_summary <- room_summary %>%
+  unnest(price_per_meter)
+
+
+room_summary$total_rooms <- room_summary$rooms + room_summary$livings + room_summary$beds + room_summary$wc
+
+create_plot <- function(data, x_var, y_var, x_label, y_label, plot_title) {
+  ggplot(data, aes_string(x = x_var, y = y_var)) +
+    geom_point(color = "lightcoral", alpha = 0.5) + 
+    labs(
+      title = plot_title,
+      x = x_label,
+      y = y_label
+    ) +
+    theme_minimal()
+}
+create_plot(room_summary, "rooms", "price_per_meter", "عدد الغرف", "السعر", "العلاقة بين عدد الغرف والسعر")
+room_price_group <- aggregate(price_per_meter ~ rooms, data = room_summary, FUN = mean)
+cat("متوسط السعر بناءً على عدد الغرف:\n")
+print(room_price_group)
+
+
+total_room_price_group <- aggregate(price_per_meter ~ total_rooms, data = room_summary, FUN = mean)
+cat("متوسط السعر بناءً على مجموع الغرف:\n")
+print(total_room_price_group)
+
+ggplot(total_room_price_group, aes(x = factor(total_rooms), y = price_per_meter)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    title = "متوسط السعر بناءً على مجموع الغرف",
+    x = "مجموع الغرف (غرف + غرف معيشية + دورات المياه)",
+    y = "متوسط السعر"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+filtered_data <- subset(room_summary, rooms == 3)
+create_plot(filtered_data, "wc", "price_per_meter", "عدد دورات المياه", "السعر", "العلاقة بين عدد دورات المياه والسعر لعدد 3 غرف")
+
+wc_price_group <- aggregate(price_per_meter ~ wc, data = filtered_data, FUN = mean)
+ggplot(wc_price_group, aes(x = factor(wc), y = price_per_meter)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    title = "متوسط السعر بناءً على عدد دورات المياه لعدد 3 غرف",
+    x = "عدد دورات المياه",
+    y = "متوسط السعر"
+  ) +
+  theme_minimal()
+
+
+filtered_data <- subset(room_summary, rooms == 3 & wc == 2)
+livings_price_group <- aggregate(price_per_meter ~ livings, data = filtered_data, FUN = mean)
+ggplot(livings_price_group, aes(x = factor(livings), y = price_per_meter)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    title = "متوسط السعر بناءً على عدد غرف المعيشة لعدد ثلاث غرف واثنتان من دورات مياه",
+    x = "عدد غرف المعيشة",
+    y = "متوسط السعر"
+  ) +
+  theme_minimal()
+
+
+filtered_data <- subset(room_summary, livings == 2 & wc == 2)
+rooms_price_group <- aggregate(price_per_meter ~ rooms, data = filtered_data, FUN = mean)
+ggplot(rooms_price_group, aes(x = factor(rooms), y = price_per_meter)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    title = "متوسط السعر بناءً على عدد الغرف مع  غرفتين معيشة واثنتان من دورات مياه",
+    x = "عدد الغرف",
+    y = "متوسط السعر"
+  ) +
+  theme_minimal()
+```
+
+-   After analyzing the plots, we concluded that certain amenities have
+    varying impacts on property prices. The data reveals that having
+    zero to two living rooms does not significantly affect the price,
+    whereas properties with three or more living rooms tend to command
+    higher prices. Additionally, it is noticeable that the number of
+    bathrooms plays a significant role in shaping tenant preferences.
+    Renters tend to favor properties where the number of bathrooms
+    matches or exceeds the number of bedrooms, reflecting a preference
+    for convenience and privacy. This suggests that ensuring an adequate
+    number of bathrooms can enhance the appeal and value of a
+    property.Interestingly, properties with fewer rooms tend to be more
+    expensive, indicating a potential premium on compact, well-designed
+    spaces.
+
+# EDA
+
+### part one
+
+**Which city - region - neighborhood is the most and least expensive?**
+
+This question focuses on identifying the areas with the highest and
+lowest property prices. By analyzing rental prices across various
+cities, regions, and neighborhoods, we aim to pinpoint specific
+locations that are the most and least expensive. This information will
+be valuable for investors, renters, and market analysts, offering
+insights into price distribution and helping in making informed real
+estate decisions.
+
+```{r mozn4 }
+df1 <- read.csv("akar2024.csv")
+cityprice <- df1 %>% select(city, price, rent_period, rooms, category)
+cityprice <- cityprice %>% filter(rooms == 5, rent_period == 3, category == 1)
+cityprice <- cityprice %>%
+  filter(city %in% c("الرياض", "جدة", "الدمام", "الخبر", "مكة المكرمة", "المدينة المنورة"))
+cityprice <- cityprice %>%
+  select(-rent_period, -rooms, -category)
+
+riyadh <- cityprice %>% filter(city == "الرياض")
+Q1 <- quantile(riyadh$price, 0.25)
+Q3 <- quantile(riyadh$price, 0.75)
+IQR <- Q3 - Q1
+riyadh <- riyadh %>%
+  filter(price >= (Q1 - 1.5 * IQR) & price <= (Q3 + 1.5 * IQR))
+riyadh <- riyadh %>% filter(price <= 700000)
+
+jeddah <- cityprice %>% filter(city == "جدة")
+jeddah <- jeddah %>% filter(price <= 800000)
+
+dammam <- cityprice %>% filter(city == "الدمام")
+dammam <- dammam %>% mutate(z_score = (price - mean(price)) / sd(price))
+dammam <- dammam %>% filter(abs(z_score) <= 3) %>% select(-z_score)
+
+khobar <- cityprice %>% filter(city == "الخبر")
+Q1 <- quantile(khobar$price, 0.25)
+Q3 <- quantile(khobar$price, 0.75)
+IQR <- Q3 - Q1
+khobar <- khobar %>%
+  filter(price >= (Q1 - 1.5 * IQR) & price <= (Q3 + 1.5 * IQR))
+
+makkah <- cityprice %>% filter(city == "مكة المكرمة")
+Q1 <- quantile(makkah$price, 0.25)
+Q3 <- quantile(makkah$price, 0.75)
+IQR <- Q3 - Q1
+makkah <- makkah %>%
+  filter(price >= (Q1 - 1.5 * IQR) & price <= (Q3 + 1.5 * IQR))
+
+madinah <- cityprice %>% filter(city == "المدينة المنورة")
+Q1 <- quantile(madinah$price, 0.25)
+Q3 <- quantile(madinah$price, 0.75)
+IQR <- Q3 - Q1
+madinah <- madinah %>%
+  filter(price >= (Q1 - 1.5 * IQR) & price <= (Q3 + 1.5 * IQR))
+
+mean_price_riyadh <- mean(riyadh$price)
+mean_price_jeddah <- mean(jeddah$price)
+mean_price_dammam <- mean(dammam$price)
+mean_price_khobar <- mean(khobar$price)
+mean_price_makkah <- mean(makkah$price)
+mean_price_madinah <- mean(madinah$price)
+
+#combine
+cityprice1 <- rbind(
+  data.frame(city = "الرياض", price = riyadh$price),
+  data.frame(city = "جدة", price = jeddah$price),
+  data.frame(city = "الدمام", price = dammam$price),
+  data.frame(city = "الخبر", price = khobar$price),
+  data.frame(city = "مكة المكرمة", price = makkah$price),
+  data.frame(city = "المدينة المنورة", price = madinah$price)
+)
+
+average_price <- cityprice1 %>%
+  group_by(city) %>%
+  summarize(price = mean(price)) %>%
+  mutate(price = as.integer(price))
+
+
+ggplot(average_price, aes(x = city, y = price, fill = city)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = rep("lightcoral", length(unique(average_price$city)))) +  
+  labs(title = "متوسط الأسعار لكل مدينة", x = "المدينة", y = "متوسط السعر") +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "Arial", size = 14),  
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5) 
+  )
+
+
+
+```
+
+**Average Price by Region in Riyadh**
+
+This metric provides the average rental price across different regions
+in Riyadh, allowing for a clearer understanding of price variations
+within the city. By calculating the average prices for each region—such
+as North, East, West, South, and Central Riyadh—we can identify which
+areas are more affordable or more expensive, helping stakeholders make
+informed choices based on regional price trends.
+
+```{r mozn5 }
+df2=read.csv("akar2024.csv")
+
+riyadh1 <- df2 %>%
+  filter(city == "الرياض") %>%
+  select(city, price, district, direction, rent_period, rooms, category)
+
+riyadh1 <- riyadh1[riyadh1$rent_period == 3.0, ]
+riyadh1 <- riyadh1[riyadh1$category == 1, ]
+riyadh1 <- riyadh1[riyadh1$rooms == 3.0, ]
+
+northriyadh <- riyadh1 %>% filter(direction == "شمال الرياض")
+eastriyadh <- riyadh1 %>% filter(direction == "شرق الرياض")
+Westriyadh <- riyadh1 %>% filter(direction == "غرب الرياض")
+Southriyadh <- riyadh1 %>% filter(direction == "جنوب الرياض")
+Centralriyadh <- riyadh1 %>% filter(direction == "وسط الرياض")
+
+Centralriyadh <- Centralriyadh[, !(colnames(Centralriyadh) %in% c('rent_period', 'city', 'rooms'))]
+eastriyadh <- eastriyadh[, !(colnames(eastriyadh) %in% c('rent_period', 'city', 'rooms'))]
+Westriyadh <- Westriyadh[, !(colnames(Westriyadh) %in% c('rent_period', 'city', 'rooms'))]
+Southriyadh <- Southriyadh[, !(colnames(Southriyadh) %in% c('rent_period', 'city', 'rooms'))]
+northriyadh <- northriyadh[, !(colnames(northriyadh) %in% c('rent_period', 'city', 'rooms'))]
+
+
+
+library(dplyr)
+library(ggplot2)
+
+Westriyadh <- riyadh1 %>%
+  filter(direction == "غرب الرياض" & price <= 50000 & price >= 20000)
+
+Centralriyadh <- riyadh1 %>%
+  filter(direction == "وسط الرياض" & price <= 70000)
+
+eastriyadh <- riyadh1 %>%
+  filter(direction == "شرق الرياض" & price <= 100000)
+
+Southriyadh <- riyadh1 %>%
+  filter(direction == "جنوب الرياض" & price <= 50000 & price >= 10000)
+
+northriyadh <- riyadh1 %>%
+  filter(direction == "شمال الرياض" & price <= 100000)
+
+
+متوسط_الوسط <- mean(Centralriyadh$price, na.rm = TRUE)
+متوسط_الشرق <- mean(eastriyadh$price, na.rm = TRUE)
+متوسط_الغرب <- mean(Westriyadh$price, na.rm = TRUE)
+متوسط_الجنوب <- mean(Southriyadh$price, na.rm = TRUE)
+متوسط_الشمال <- mean(northriyadh$price, na.rm = TRUE)
+
+
+dfmeans <- data.frame(
+  المنطقة = c("وسط الرياض", "شرق الرياض", "غرب الرياض", "جنوب الرياض", "شمال الرياض"),
+  متوسط_السعر = c(متوسط_الوسط, متوسط_الشرق, متوسط_الغرب, متوسط_الجنوب, متوسط_الشمال)
+)
+
+#plot
+ggplot(dfmeans, aes(x = المنطقة, y = متوسط_السعر)) +
+  geom_bar(stat = "identity", color = "gray", fill = "lightcoral") +  
+  labs(title = "متوسط سعر إيجار الشقة حسب المنطقة", x = "المنطقة", y = "متوسط السعر") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),   
+    plot.title = element_text(hjust = 0.5, size = 14)   
+  )
+
+
+```
+
+**Average Price in Each Neighborhood in Riyadh**
+
+This metric calculates the average rental price in each neighborhood
+across Riyadh. By analyzing neighborhood-level data, we can gain
+detailed insights into price variations within the city. This allows us
+to identify specific neighborhoods that are either more affordable or
+more expensive, supporting renters, investors, and analysts in making
+well-informed decisions based on local price trends.
+
+```{r mozn6 }
+Westriyadhmeans <- Westriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+Centralriyadhmeans <- Centralriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+Eastriyadhmeans <- eastriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+Southriyadhmeans <- Southriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+Northriyadhmeans <- northriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+# Prepare the data for barplot (districts and mean prices)
+mean_prices_west <- Westriyadhmeans$mean_price
+districts_west <- Westriyadhmeans$district
+
+mean_prices_central <- Centralriyadhmeans$mean_price
+districts_central <- Centralriyadhmeans$district
+
+mean_prices_east <- Eastriyadhmeans$mean_price
+districts_east <- Eastriyadhmeans$district
+
+mean_prices_south <- Southriyadhmeans$mean_price
+districts_south <- Southriyadhmeans$district
+
+mean_prices_north <- Northriyadhmeans$mean_price
+districts_north <- Northriyadhmeans$district
+options(scipen = 999)
+
+# Create the barplots
+barplot(mean_prices_west, 
+        names.arg = districts_west, 
+        col = "lightcoral", 
+        main = "متوسط السعر حسب الحي في غرب الرياض", 
+        xlab = "متوسط السعر", 
+        ylab = "الحي", 
+        las = 1, 
+        cex.names = 0.8,  
+        col.main = "gray",  
+        col.lab = "gray",
+        horiz = TRUE)
+
+barplot(mean_prices_central, 
+        names.arg = districts_central, 
+        col = "lightcoral",  
+        main = "متوسط السعر حسب الحي في وسط الرياض", 
+        xlab = "متوسط السعر", 
+        ylab = "الحي", 
+        las = 1, 
+        cex.names = 0.8,
+        col.main = "gray",
+        col.lab = "gray",
+        horiz = TRUE)
+
+barplot(mean_prices_east, 
+        names.arg = districts_east, 
+        col = "lightcoral", 
+        main = "متوسط السعر حسب الحي في شرق الرياض", 
+        xlab = "متوسط السعر", 
+        ylab = "الحي", 
+        las = 1, 
+        cex.names = 0.8,
+        col.main = "gray",
+        col.lab = "gray",
+        horiz = TRUE)
+
+barplot(mean_prices_south, 
+        names.arg = districts_south, 
+        col = "lightcoral", 
+        main = "متوسط السعر حسب الحي في جنوب الرياض", 
+        xlab = "متوسط السعر", 
+        ylab = "الحي", 
+        las = 1, 
+        cex.names = 0.8,
+        col.main = "gray",
+        col.lab = "gray",
+        horiz = TRUE)
+
+barplot(mean_prices_north, 
+        names.arg = districts_north, 
+        col = "lightcoral", 
+        main = "متوسط السعر حسب الحي في شمال الرياض", 
+        xlab = "متوسط السعر", 
+        ylab = "الحي", 
+        las = 1, 
+        cex.names = 0.8,
+        col.main = "gray",
+        col.lab = "gray",
+        horiz = TRUE)
+
+```
+
+**The Most and Least Expensive Neighborhoods in Saudi Arabia**
+
+This analysis focuses on identifying the neighborhoods with the highest
+and lowest property prices across Saudi Arabia. By examining real estate
+data from various neighborhoods, we aim to highlight specific areas that
+are considered the most expensive and the most affordable. This
+information provides valuable insights for investors, renters, and
+market analysts, helping them make informed decisions based on
+neighborhood-level pricing trends throughout the country.
+
+```{r farrah6}
+#all cities before filtering 
+####library(reader)
+data <- read.csv("akar2024.csv")
+topcities=data %>%
+  group_by(city)%>%
+  summarize(countt=n())%>%
+  arrange(desc(countt))
+  # top6 cities and districts with at least 10 records, the previous work is just to understand the data 
+topcities=filter(data,city%in% c("الرياض", "جدة", "الدمام", "الخبر", "مكة المكرمة", "المدينة المنورة"))
+
+price_summaryall <- topcities %>%
+  group_by(city, district) %>%
+  summarise(avg_price = mean(price, na.rm = TRUE), count = n()) %>%
+  filter(count >= 10) %>%   # Filter out districts with less than 10 records
+  arrange(desc(avg_price))
+
+# Get the top 10 and bottom 10 districts after filtering
+top10all <- head(price_summaryall, 10)
+top10all <- top10all %>%
+  mutate(city_district = paste(city, district, sep = " - "))  # Combine city and district names
+
+bottom10all <- tail(price_summaryall, 10)
+bottom10all <- bottom10all %>%
+  mutate(city_district = paste(city, district, sep = " - "))  # Combine city and district names
+
+```
+
+```{r farrah7 }
+#cities after filtering
+#take caregory by account 
+exp_dis <- function(data, catg, m_l = "m") {
+  # Function to remove outliers based on IQR
+  remove_outliers <- function(data, column) {
+    Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+    IQR_value <- Q3 - Q1
+    lower_bound <- Q1 - 1.5 * IQR_value
+    upper_bound <- Q3 + 1.5 * IQR_value
+    filtered_data <- data %>%
+      filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+    return(filtered_data)
+  }
+  
+  # Filter data for selected cities and category
+  topcities <- filter(data, city %in% c("الرياض", "جدة", "الدمام", "الخبر", "مكة المكرمة", "المدينة المنورة"), category == catg)
+  
+  # Remove outliers from 'price' column
+  topcities_no_outliers <- remove_outliers(topcities, "price")
+  
+  # Summarize data by city and district
+  price_summaryall <- topcities_no_outliers %>%
+    group_by(city, district) %>%
+    summarise(avg_price = mean(price, na.rm = TRUE), count = n(), .groups = "drop") %>%
+    filter(count >= 10) %>%   # Filter out districts with less than 10 records
+    arrange(desc(avg_price))
+  
+  # Get the top 10 and bottom 10 districts
+  top10all <- head(price_summaryall, 10) %>%
+    mutate(city_district = paste(city, district, sep = " - "))
+  bottom10all <- tail(price_summaryall, 10) %>%
+    mutate(city_district = paste(city, district, sep = " - "))
+  
+  # Plotting
+  if (m_l == "m") {
+    # Top 10 most expensive districts
+    ggplot(top10all, aes(x = reorder(city_district, avg_price), y = avg_price)) +
+      geom_bar(stat = "identity", fill = "lightcoral") +
+      labs(title = "أغلى 10 مناطق سكنية", x = "المدينة - المنطقة", y = "متوسط السعر") +
+      coord_flip() +
+      scale_y_continuous(labels = scales::label_number(scale = 1, suffix = " ر.س", decimal.mark = "."))
+  } else if (m_l == "l") {
+    # Bottom 10 least expensive districts
+    ggplot(bottom10all, aes(x = reorder(city_district, -avg_price), y = avg_price)) +
+      geom_bar(stat = "identity", fill = "gray") +
+      labs(title = "أقل 10 مناطق سكنية", x = "المدينة - المنطقة", y = "متوسط السعر") +
+      coord_flip() +
+      scale_y_continuous(labels = scales::label_number(scale = 1, suffix = " ر.س", decimal.mark = "."))
+  }
+}
+
+# Example usage:
+exp_dis(data, 3, "l")  # For least expensive
+exp_dis(data, 3, "m")  # For most expensive
+
+
+```
+
+**The Most and Least Expensive Neighborhoods in Riyadh**
+
+This analysis identifies the neighborhoods with the highest and lowest
+rental prices within the city of Riyadh. By examining rental data across
+various neighborhoods, we aim to pinpoint specific areas that stand out
+as the most expensive and the most affordable. These insights are
+valuable for investors, renters, and market analysts, offering a clear
+view of price distribution at the neighborhood level and assisting in
+making well-informed real estate decisions in Riyadh.
+
+```{r farrah8 }
+#riyadh  
+data <- read_csv("akar2024.csv", locale = locale(encoding = "UTF-8"))
+topcities_riyadh <- filter(data, city == "الرياض")
+
+# Function to remove outliers based on IQR
+remove_outliers <- function(data, column) {
+  Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+  Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+  IQR_value <- IQR(data[[column]], na.rm = TRUE)
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  filtered_data <- data %>% filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+  return(filtered_data)
+}
+
+# Remove outliers from 'price' column for Riyadh
+topcities_riyadh_no_outliers <- remove_outliers(topcities_riyadh, "price")
+
+# Summarize data by city and district after removing outliers
+price_summary_riyadh <- topcities_riyadh_no_outliers %>%
+  group_by(city, district) %>%
+  summarise(avg_price = mean(price, na.rm = TRUE), count = n()) %>%
+  filter(count >= 10) %>%   # Filter out districts with less than 10 records
+  arrange(desc(avg_price))
+
+# Get the top 10 and bottom 10 districts in Riyadh after filtering
+top10_riyadh <- head(price_summary_riyadh, 10)
+top10_riyadh <- top10_riyadh %>%
+  mutate(city_district = paste(city, district, sep = " - "))  # Combine city and district names
+
+bottom10_riyadh <- tail(price_summary_riyadh, 10)
+bottom10_riyadh <- bottom10_riyadh %>%
+  mutate(city_district = paste(city, district, sep = " - "))  # Combine city and district names
+
+
+topcities_riyadh <- filter(data, city == "الرياض")
+
+exp_dis(topcities_riyadh,3,"m")
+exp_dis(topcities_riyadh,3,"l")
+
+
+```
+
+**Which cities have the highest and lowest prices for apartments for
+sale?**
+
+we will examine the range of apartment prices across various cities,
+focusing on identifying the cities with the highest and lowest price
+averages. By ranking the cities from the most expensive to the least, we
+can assess patterns and trends in the real estate market and pinpoint
+regions with notable price extremes. This analysis will be helpful for
+potential buyers, investors, and real estate market analysts looking to
+understand which areas have premium pricing and which offer more
+affordable options.
+
+```{r leyan9 }
+#function to remove outliers
+remove_outliers <- function(data, columns) {
+  for (column in columns) {
+    Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+    IQR_value <- Q3 - Q1
+    lower_bound <- Q1 - 1.5 * IQR_value
+    upper_bound <- Q3 + 1.5 * IQR_value
+    data <- data %>%
+      filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+  }
+  return(data)
+}
+akar2 <- read_csv("akar2024.csv")
+
+akar2_no_outliers <- remove_outliers(akar2,c("price","age") )
+summary(akar2_no_outliers$price)
+summary(akar2$price)
+city_count <- akar2_no_outliers %>%
+  group_by(city) %>%
+  summarize(count = n())
+
+
+akar_floor <- akar2_no_outliers %>%
+  filter(category == "6")
+summary(akar_floor$price)
+
+akar_floor_outliers <- remove_outliers(akar_floor,c( "price","age"))
+summary(akar_floor_outliers$price)
+
+city_count2 <- akar_floor_outliers %>%
+  group_by(city) %>%
+  summarize(count = n())
+
+
+akar_floor_outliers%>%
+  group_by(city) %>%
+  summarize(count = n(), average_price = mean(price, na.rm = TRUE)) %>%
+  arrange(desc(average_price))
+top_10_cities <- akar_floor_outliers %>%
+  filter(category == "6") %>%
+  group_by(city) %>%
+  summarize(
+    average_price = mean(price, na.rm = TRUE)
+  ) %>%
+  arrange(desc(average_price)) %>%
+  slice_head(n = 10)
+
+ggplot(top_10_cities, aes(x = reorder(city, average_price), y = average_price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "أكثر 10 مدن في متوسط أسعار الشقق للبيع",
+       x = "المدينة",
+       y = "متوسط السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "IBM"),
+    legend.position = "none"
+  )
+
+bottom_10_cities <- akar_floor_outliers %>%
+  filter(category == "6") %>%
+  group_by(city) %>%
+  summarize(
+    average_price = mean(price, na.rm = TRUE)
+  ) %>%
+  arrange(average_price) %>%
+  slice_head(n = 10)
+
+ggplot(bottom_10_cities, aes(x = reorder(city, average_price), y = average_price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "أقل 10 مدن في متوسط أسعار الشقق",
+       x = "المدينة",
+       y = "متوسط السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    text = element_text(family = "IBM"),
+    legend.position = "none"
+  )
+
+avg_city <- akar_floor_outliers %>%
+  filter(category == "6") %>%
+  group_by(city) %>%
+  summarize(
+    average_price = mean(price, na.rm = TRUE)
+  ) %>%
+  arrange(average_price)
+
+ggplot(avg_city, aes(x = reorder(city, average_price), y = average_price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "مقارنة متوسط سعر الشقة للبيع حسب المدينة",
+       x = "المدينة",
+       y = "متوسط السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() + 
+  theme_minimal() +
+  theme(text = element_text(family = "IBM"))
+
+
+
+```
+
+**What is the average sale price of apartments in cities across the
+Kingdom?** This analysis aims to determine the average prices of
+apartments for sale in various cities within the Kingdom. By calculating
+these averages, we can gain insights into the real estate market,
+understand regional pricing trends, and identify areas with
+comparatively higher or lower apartment prices.
+
+```{r  leyan10 }
+akar_r_P<- akar2_no_outliers %>%
+  filter(city == "الرياض" & category == "6") %>%
+  select(city, category, district, direction,price)
+
+akar_r_p_c<- remove_outliers(akar_r_P, "price" )
+summary(akar_r_p_c$price)
+
+district_price <- akar_r_p_c %>%
+  group_by(district) %>%
+  summarize(average_price = mean(price, na.rm = TRUE)) 
+
+str(district_price)
+
+
+ggplot(district_price, aes(x = reorder(district, average_price), y = average_price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "شقق للبيع في احياء الرياض مقارنة متوسط السعر",
+       x = "الحي",
+       y = "متوسط السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  theme_minimal() +
+  theme(text = element_text(family = "IBM"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+direction_price <- akar_r_p_c %>%
+  group_by(direction) %>%
+  summarize(average_price = mean(price, na.rm = TRUE))
+ggplot(direction_price, aes(x = direction, y = average_price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "مقارنة بين مناطق الرياض ومتوسط الاسعار",
+       x = "اجزاء الرياض",
+       y = "متوسط الاسعار") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal() +
+  theme(text = element_text(family = "IBM"))
+
+akar_r_d<- akar2_no_outliers %>%
+  filter(city == "مكة المكرمة" & category == "6") %>%
+  select(city, category, district,price)
+#View(akar_r_d)
+
+
+akar_r_d_c<- remove_outliers(akar_r_d,"price" )
+
+
+
+ggplot(akar_r_d_c, aes(x = reorder(district, price), y = price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "متوسط اسعار شقق البيع في احياء مكة",
+       x = "الحي",
+       y = "السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  theme_minimal() +
+  theme(text = element_text(family = "IBM"),
+        legend.position = "none")
+
+akar_r_dd<- akar2_no_outliers %>%
+  filter(city == "الدمام"& category == "6") %>%
+  select(city, category, district,price)
+#View(akar_r_dd)
+
+akar_r_ddc<- remove_outliers(akar_r_dd, "price" )
+
+
+ggplot(akar_r_ddc, aes(x = reorder(district, price), y = price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "متوسط اسعار شقق البيع في احياء الدمام",
+       x = "الحي",
+       y = "السعر") +
+  scale_y_continuous(labels = scales::comma) +
+  coord_flip() +
+  theme_minimal() +
+  theme(text = element_text(family = "IBM"),
+        legend.position = "none")
+
+
+```
+
+### part two
+
+**Is Commercial or Residential Property More Expensive?** Generally,
+commercial properties tend to be more expensive than residential ones,
+largely due to their potential for generating income. However, prices
+vary significantly based on the location, property size, and demand in
+each area. In Riyadh, the analysis can consider average rental prices in
+various districts to offer insights into the differences.
+
+```{r mozn11 }
+df4=read_csv("akar2024.csv")
+df3 <- df4[, c('category', 'price', 'rent_period', 'city', 'district', 'direction', 'rooms', 'area')]
+values_to_remove <- c(3, 6, 11, 18, 21, 22, 13, 17, 20, 15, 5, 2, 19, 16, 7, 10, 12, 4, 9, 23)
+df3 <- df3[!df3$category %in% values_to_remove, ]
+
+
+df3 <- df3[df3$city == 'الرياض', ]
+df3 <- df3[df3$rent_period == 3.0, ]
+df3 <- df3[df3$category %in% c(1, 8, 14), ]
+print(df3)
+
+#remove
+df3 <- df3[, !(names(df3) %in% c('rent_period', 'city', 'rooms'))]
+print(df3)
+
+
+df3$type <- ifelse(df3$category == 1, 'سكني', ifelse(df3$category %in% c(8, 14), 'تجاري', 'غير معروف'))
+mean_by_type <- aggregate(price ~ type, data = df3, FUN = mean)
+print(mean_by_type)
+
+
+df3$type <- ifelse(df3$category == 1, 'سكني', ifelse(df3$category %in% c(8, 14), 'تجاري', 'غير معروف'))
+skeny_data <- df3[df3$type == 'سكني', ]
+Q1 <- quantile(skeny_data$price, 0.25)
+Q3 <- quantile(skeny_data$price, 0.75)
+IQR <- Q3 - Q1
+lower_bound <- Q1 - 1.5 * IQR
+upper_bound <- Q3 + 1.5 * IQR
+skeny_data_filtered <- skeny_data[skeny_data$price >= lower_bound & skeny_data$price <= upper_bound, ]
+skeny_data_filtered <- skeny_data_filtered[skeny_data_filtered$price >= 10000 & skeny_data_filtered$price <= 50000, ]
+
+library(ggplot2)
+
+ggplot(skeny_data_filtered, aes(x = type, y = price, fill = type)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("سكني" = "lightcoral")) +
+  labs(
+    title = "توزيع الأسعار للعقارات السكنية",
+    x = "نوع العقار",
+    y = "السعر"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+df3$type <- ifelse(df3$category == 1, 'سكني', ifelse(df3$category %in% c(8, 14), 'تجاري', 'غير معروف'))
+tagari_data <- df3[df3$type == 'تجاري', ]
+Q1 <- quantile(tagari_data$price, 0.25)
+Q3 <- quantile(tagari_data$price, 0.75)
+IQR <- Q3 - Q1
+lower_bound <- Q1 - 1.5 * IQR
+upper_bound <- Q3 + 1.5 * IQR
+tagari_data_filtered <- tagari_data[tagari_data$price >= lower_bound & tagari_data$price <= upper_bound, ]
+manual_outliers <- tagari_data_filtered[tagari_data_filtered$price < 700000, ]
+tagari_data_filtered <- tagari_data_filtered[tagari_data_filtered$price >= 550000, ]
+
+library(ggplot2)
+
+ggplot(tagari_data_filtered, aes(x = type, y = price, fill = type)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("تجاري" = "gray")) +
+  labs(
+    title = "توزيع الأسعار للعقارات التجارية بدون قيم شاذة",
+    x = "نوع العقار",
+    y = "السعر"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+df3$type <- ifelse(df3$category == 1, 'سكني', ifelse(df3$category %in% c(8, 14), 'تجاري', 'غير معروف'))
+
+skeny_data <- df3[df3$type == 'سكني', ]
+
+Q1_skeny <- quantile(skeny_data$price, 0.25)
+Q3_skeny <- quantile(skeny_data$price, 0.75)
+IQR_skeny <- Q3_skeny - Q1_skeny
+lower_bound_skeny <- Q1_skeny - 1.5 * IQR_skeny
+upper_bound_skeny <- Q3_skeny + 1.5 * IQR_skeny
+skeny_data_filtered <- skeny_data[skeny_data$price >= lower_bound_skeny & skeny_data$price <= upper_bound_skeny, ]
+tagari_data <- df3[df3$type == 'تجاري', ]
+Q1_tagari <- quantile(tagari_data$price, 0.25)
+Q3_tagari <- quantile(tagari_data$price, 0.75)
+IQR_tagari <- Q3_tagari - Q1_tagari
+lower_bound_tagari <- Q1_tagari - 1.5 * IQR_tagari
+upper_bound_tagari <- Q3_tagari + 1.5 * IQR_tagari
+tagari_data_filtered <- tagari_data[tagari_data$price >= lower_bound_tagari & tagari_data$price <= upper_bound_tagari, ]
+mean_skeny <- mean(skeny_data_filtered$price)
+mean_tagari <- mean(tagari_data_filtered$price)
+mean_values <- c(mean_skeny, mean_tagari)
+types <- c("سكني", "تجاري")
+
+library(ggplot2)
+
+ggplot(data.frame(type = types, mean_price = mean_values), aes(x = type, y = mean_price, fill = type)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  scale_fill_manual(values = c("سكني" = "lightcoral", "تجاري" = "gray")) +
+  labs(
+    title = "المتوسط الحسابي لأسعار العقارات",
+    x = "نوع العقار",
+    y = "المتوسط الحسابي للسعر"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+df3$price_per_sqm <- df3$price / df3$area
+df3$type <- ifelse(df3$category == 1, 'سكني', ifelse(df3$category %in% c(8, 14), 'تجاري', 'غير معروف'))
+mean_price_per_sqm <- aggregate(price_per_sqm ~ type, data = df3, FUN = mean)
+
+ggplot(mean_price_per_sqm, aes(x = type, y = price_per_sqm, fill = type)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  scale_fill_manual(values = c("سكني" = "lightcoral", "تجاري" = "gray")) +
+  labs(
+    title = "متوسط ايجار المتر مربع حسب نوع العقار",
+    x = "نوع العقار",
+    y = "متوسط السعر لكل متر مربع"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+
+
+```
+
+**How do the prices of offices, institutions, and real estate companies
+in Riyadh compare?** This analysis compares the prices of offices,
+institutions, and real estate companies in Riyadh to understand pricing
+trends across different property types. By examining these price
+variations, we can identify which types of properties are more expensive
+or affordable in the city, helping investors and buyers make informed
+decisions.
+
+```{r  leyan12 }
+akar2_r=filter(akar2_no_outliers,city == "الرياض")
+akar2_rr <- remove_outliers(akar2_r, c("price"))
+akar2_rr <- akar2_rr %>%
+  mutate(company_type = case_when(
+    grepl("مؤسسة", user.name, ignore.case = TRUE) ~ "مؤسسة",
+    grepl("شركة", user.name, ignore.case = TRUE) ~ "شركة",
+    grepl("مكتب", user.name, ignore.case = TRUE) ~ "مكتب",
+    TRUE ~ NA_character_
+  ))
+
+  #View(akar2_rr)
+  akar2_rr <- akar2_rr %>%
+  filter(rent_period == "3" & category %in% c("1", "4","5"))
+
+
+companies_with_type <- akar2_rr %>%
+  filter(!is.na(company_type))
+#View(companies_with_type)
+
+average_price <- companies_with_type %>%
+  group_by(company_type) %>%
+  summarise(average_price = mean(price, na.rm = TRUE))
+
+ggplot(average_price, aes(x = company_type, y = average_price, fill = company_type)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "مقارنة متوسط الأسعار للمؤسسة، الشركة، والمكتب",
+    x = "نوع الشركة",
+    y = "متوسط السعر"
+  ) +
+  theme_minimal() +
+  theme(text = element_text(family = "IBM")) +
+  scale_fill_manual(values = c("مؤسسة" = "lightgray", "شركة" = "darkgray", "مكتب" = "lightcoral"))
+
+
+```
+
+**What are the differences between leasing through a corporation and
+leasing from an individual?** This analysis explores the differences
+between leasing through a corporation and leasing from an individual
+landlord. It examines factors such as lease terms, rental rates,
+property management, and flexibility. The goal is to understand how
+leasing practices vary based on the type of landlord and how these
+differences impact tenants in terms of costs, management, and overall
+leasing experience. By comparing both options, the analysis helps
+potential tenants make informed decisions about their leasing choices.
+
+```{r mozn13 }
+df7=read_csv("akar2024.csv")
+type1 <- df7[df7$city == 'الرياض', ]
+type1 <- type1[type1$rent_period == 3.0, ]
+type1 <- type1[type1$category == 1, ]
+type1 <- type1[type1$rooms == 3, ]
+type1$user_type <- ifelse(grepl("شركة|مؤسسة", type1$user.name), "مؤسسة", "فرد")
+type12 <- type1[type1$direction == 'شمال الرياض', ]
+
+avg_price_north <- type12 %>%
+  group_by(district, user_type) %>%
+  summarise(avg_price = mean(price)) %>%
+  ungroup()
+
+ggplot(avg_price_north, aes(x = district, y = avg_price, fill = user_type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "المناطق",
+    y = "متوسط السعر (ريال)",
+    title = "متوسط أسعار الإيجارات في شمال الرياض حسب المنطقة"
+  ) +
+  scale_fill_manual(values = c("gray", "lightcoral")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, family = "Arial"),
+    axis.text.y = element_text(family = "Arial"),
+    plot.title = element_text(family = "Arial", face = "bold", size = 16),
+    axis.title = element_text(family = "Arial", face = "bold", size = 14),
+    legend.title = element_text(family = "Arial", face = "bold", size = 12)
+  ) +
+  guides(fill = guide_legend(title = "الفئة"))
+
+type123 <- subset(type1, direction == 'جنوب الرياض')
+type123$user_type <- ifelse(grepl("شركة|مؤسسة", type123$user.name), 'مؤسسة', 'فرد')
+avg_price1 <- aggregate(price ~ district + user_type, data = type123, FUN = mean)
+avg_price_pivot <- reshape(avg_price1, idvar = "district", timevar = "user_type", direction = "wide")
+library(ggplot2)
+
+ggplot(avg_price_pivot, aes(x = district)) +
+  geom_bar(aes(y = `price.فرد`, fill = "فرد"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = `price.مؤسسة`, fill = "مؤسسة"), stat = "identity", position = "dodge") +
+  labs(
+    title = "متوسط أسعار الإيجارات في جنوب الرياض حسب المنطقة",
+    x = "المناطق",
+    y = "متوسط السعر (ريال)",
+    fill = "الفئة"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = c("فرد" = "lightcoral", "مؤسسة" = "gray")) +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(size = 12, family = "Arial"))
+
+type122 <- subset(type1, direction == 'غرب الرياض')
+type122$user_type <- ifelse(grepl("شركة|مؤسسة", type122$user.name), 'مؤسسة', 'فرد')
+avg_price1 <- aggregate(price ~ district + user_type, data = type122, FUN = mean)
+avg_price_pivot <- reshape(avg_price1, idvar = "district", timevar = "user_type", direction = "wide")
+library(ggplot2)
+
+ggplot(avg_price_pivot, aes(x = district)) +
+  geom_bar(aes(y = `price.فرد`, fill = "فرد"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = `price.مؤسسة`, fill = "مؤسسة"), stat = "identity", position = "dodge") +
+  labs(
+    title = "متوسط أسعار الإيجارات في غرب الرياض حسب المنطقة",
+    x = "المناطق",
+    y = "متوسط السعر (ريال)",
+    fill = "الفئة"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = c("فرد" = "lightcoral", "مؤسسة" = "gray")) +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(size = 12, family = "Arial"))
+
+type124 <- subset(type1, direction == 'شرق الرياض')
+type124$user_type <- ifelse(grepl("شركة|مؤسسة", type124$user.name), 'مؤسسة', 'فرد')
+avg_price1 <- aggregate(price ~ district + user_type, data = type124, FUN = mean)
+avg_price_pivot <- reshape(avg_price1, idvar = "district", timevar = "user_type", direction = "wide")
+library(ggplot2)
+
+ggplot(avg_price_pivot, aes(x = district)) +
+  geom_bar(aes(y = `price.فرد`, fill = "فرد"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = `price.مؤسسة`, fill = "مؤسسة"), stat = "identity", position = "dodge") +
+  labs(
+    title = "متوسط أسعار الإيجارات في شرق الرياض حسب المنطقة",
+    x = "المناطق",
+    y = "متوسط السعر (ريال)",
+    fill = "الفئة"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = c("فرد" = "lightcoral", "مؤسسة" = "gray")) +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(size = 12, family = "Arial"))
+
+type125 <- subset(type1, direction == 'وسط الرياض')
+type125$user_type <- ifelse(grepl("شركة|مؤسسة", type125$user.name), 'مؤسسة', 'فرد')
+avg_price1 <- aggregate(price ~ district + user_type, data = type125, FUN = mean)
+avg_price_pivot <- reshape(avg_price1, idvar = "district", timevar = "user_type", direction = "wide")
+library(ggplot2)
+
+ggplot(avg_price_pivot, aes(x = district)) +
+  geom_bar(aes(y = `price.فرد`, fill = "فرد"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = `price.مؤسسة`, fill = "مؤسسة"), stat = "identity", position = "dodge") +
+  labs(
+    title = "متوسط أسعار الإيجارات في وسط الرياض حسب المنطقة",
+    x = "المناطق",
+    y = "متوسط السعر (ريال)",
+    fill = "الفئة"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold"),
+    axis.title = element_text(size = 14, face = "bold")
+  ) +
+  scale_fill_manual(values = c("فرد" = "lightcoral", "مؤسسة" = "gray")) +
+  theme(legend.position = "top") +
+  theme(axis.text = element_text(size = 12, family = "Arial"))
+
+```
+
+### part three
+
+**What are the most important attributes affecting the price other than
+area?** This analysis indicates which attributes are most valuable in
+Riyadh’s property market. For instance, attributes like “pool” or
+“playground” might have higher associated average prices, suggesting
+they add significant value to properties. Property developers and
+sellers can use these insights to enhance property features that attract
+buyers or renters.
+
+```{r farrah14 }
+data_riyadh <- data %>%
+  filter(city == "الرياض")
+
+# Filter and group data for categories 6, 3, and 2
+furnish_summary_riyadh <- data_riyadh %>%
+  filter(category %in% c(6, 3, 2)) %>%
+  group_by(furnished, category) %>%
+  summarise(avg_price = mean(price, na.rm = TRUE), .groups = "drop")
+# Function to remove outliers based on IQR
+remove_outliers <- function(data, column) {
+  Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+  Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+  IQR_value <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  data %>% filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+}
+
+# Remove outliers in the price column
+data_no_outliers <- remove_outliers(data_riyadh, "price")
+
+# List of attributes to analyze
+attributes <- c("beds", "two_entrances", "special_entrance", "ketchen", "livings",
+                "playground", "pool", "rooms", "private_roof", "wc", "lift")
+
+# Calculate average price for each attribute only for category 3
+avg_price_attributes <- lapply(attributes, function(attr) {
+  data_no_outliers %>%
+    filter(category == 3) %>%   # Filter for category 3
+    mutate(price_per_area = price / area) %>%
+    remove_outliers("price_per_area") %>%
+    group_by(.data[[attr]]) %>%
+    summarise(avg_price_per_area = mean(price_per_area, na.rm = TRUE)) %>%
+    mutate(attribute = attr)
+}) %>% bind_rows()
+
+# Arrange attributes from highest to lowest price effect
+avg_price_summary <- avg_price_attributes %>%
+  group_by(attribute) %>%
+  summarise(avg_price = mean(avg_price_per_area, na.rm = TRUE)) %>%
+  arrange(desc(avg_price))
+
+# Plot the results
+ggplot(avg_price_summary, aes(x = reorder(attribute, avg_price), y = avg_price)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "السمات المؤثرة على أسعار العقارات في الرياض (فيلا للبيع)",
+       x = "Attribute",
+       y = "Average Price") +
+  coord_flip() +
+  scale_y_continuous(labels = label_number(scale = 1, suffix = " ر.س", decimal.mark = ".")) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 10))
+
+
+```
+
+**Does the presence of features like a private entrance, parking,
+rooftop, or external additions (e.g., yard) increase property value?**
+We will check if there are differences and how big they are.
+
+```{r shadan1 }
+data=read_csv("akar2024.csv")
+data <- data %>% distinct(id, .keep_all = TRUE)%>% filter(city=="الرياض")
+cat=c(1, 6)
+# Function to remove outliers
+remove_outliers <- function(data, column) {
+  Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+  Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+  IQR_value <- IQR(data[[column]], na.rm = TRUE)
+  lower_bound <- Q1 - 1.5 * IQR_value
+  upper_bound <- Q3 + 1.5 * IQR_value
+  filtered_data <- data %>% filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+  return(filtered_data)
+}
+
+p_three_df=data %>%
+  filter(category %in% c(1, 6)) %>%
+  # For category 6, remove rows where rent_period is not NA
+  filter(!(category == 6 & !is.na(rent_period))) %>%
+  # For category 1, remove rows where rent_period is NA
+  filter(!(category == 1 & is.na(rent_period)))
+# Define the function
+p_three <- function(data, group_col, rent_per = NA, title_suffix  = "") {
+  
+  # Determine title based on rent_period
+  title_text <- switch(as.character(rent_per),
+                       "3" = paste("متوسط سعر المتر المربع حسب عدد الغرف في الرياض - الإيجار السنوي", title_suffix),
+                       "2" = paste("متوسط سعر المتر المربع حسب عدد الغرف في الرياض - الإيجار الشهري", title_suffix),
+                       "NA" = paste("متوسط سعر المتر المربع  حسب عدد الغرف في الرياض - للبيع", title_suffix))
+  
+  # Filter and summarize data
+  avg_price <- data %>%
+    filter(city == "الرياض",
+           (is.na(rent_per) & is.na(rent_period)) | rent_period == rent_per) %>%
+    mutate(price_per_area = price / area) %>%
+    remove_outliers("price_per_area") %>%
+    group_by({{ group_col }}) %>%
+    summarise(avg_price_per_area = mean(price_per_area, na.rm = TRUE)) %>%
+    arrange({{ group_col }})
+  
+  # Calculate percentage difference between consecutive bars
+  avg_price <- avg_price %>%
+    mutate(percentage_change = c(NA, diff(avg_price_per_area) / head(avg_price_per_area, -1) * 100))  # Use head() to align lengths
+  
+  # Print the percentage differences
+  print(avg_price)  # This will display the calculated percentage change
+  
+  # Create plot
+  plot <- ggplot(avg_price, aes(x = as.factor({{ group_col }}), y = avg_price_per_area)) +
+    geom_bar(stat = "identity", fill = "lightcoral") +
+    labs(title = title_text,
+         x =paste("عدد", title_suffix),
+         y = "متوسط سعر المتر المربع") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal()
+  
+  return(plot)
+}
+
+
+p_three(p_three_df, private_roof, rent_per = 3, title_suffix = "(السطح الخاص)")
+p_three(p_three_df, private_roof, rent_per = 2, title_suffix = "(السطح الخاص)")
+p_three(p_three_df, private_roof, rent_per = NA, title_suffix = "(السطح الخاص)")
+
+p_three(p_three_df, special_entrance, rent_per = 3, title_suffix = "(مدخل خاص)")
+p_three(p_three_df, special_entrance, rent_per = 2, title_suffix = "(مدخل خاص)")
+p_three(p_three_df, special_entrance, rent_per = NA, title_suffix = "(مدخل خاص)")
+
+p_three(p_three_df, two_entrances, rent_per = 3, title_suffix = "(مدخلين)")
+p_three(p_three_df, two_entrances, rent_per = 2, title_suffix = "(مدخلين)")
+p_three(p_three_df, two_entrances, rent_per = NA, title_suffix = "(مدخلين)")
+
+p_three(p_three_df, lift, rent_per = 3, title_suffix = "(مصعد)")
+p_three(p_three_df, lift, rent_per = 2, title_suffix = "(مصعد)")
+p_three(p_three_df, lift, rent_per = NA, title_suffix = "(مصعد)")
+
+p_three(p_three_df, pool, rent_per = 3, title_suffix = "(مسبح)")
+p_three(p_three_df, pool, rent_per = 2, title_suffix = "(مسبح)")
+p_three(p_three_df, pool, rent_per = NA, title_suffix = "(مسبح)")
+
+
+
+
+```
+
+**Does furnished vs. unfurnished apartments, as well as the presence of
+water, electrical, drainage systems, impact the price?** Determining
+whether furnished properties and the availability of water, electrical,
+and drainage systems impact prices helps identify key factors
+influencing property value. This insight can refine predictive models,
+improve pricing strategies, and guide buyers and sellers in making
+informed decisions. Additionally, it highlights market trends and
+supports modernization efforts by emphasizing the importance of
+essential utilities in property valuation.
+
+```{r farrah17}
+data=read_csv("akar2024.csv")
+data <- data %>% distinct(id, .keep_all = TRUE)%>% filter(city=="الرياض")
+
+# Function to plot average price per area with outliers removed based on IQR
+plot_price_per_area <- function(data, feature, categories = c(3, 2, 6)) {
+  
+  # Check if the specified feature exists in the dataset
+  if (!(feature %in% colnames(data))) {
+    stop("The specified feature does not exist in the dataset.")
+  }
+  
+  # Function to remove outliers based on IQR
+  remove_outliers <- function(data, column) {
+    Q1 <- quantile(data[[column]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(data[[column]], 0.75, na.rm = TRUE)
+    IQR_value <- IQR(data[[column]], na.rm = TRUE)
+    lower_bound <- Q1 - 1.5 * IQR_value
+    upper_bound <- Q3 + 1.5 * IQR_value
+    filtered_data <- data %>% filter(data[[column]] >= lower_bound & data[[column]] <= upper_bound)
+    return(filtered_data)
+  }
+  
+  # Remove outliers for the price and area columns
+  data_no_outliers <- remove_outliers(data, "price")
+  data_no_outliers <- remove_outliers(data_no_outliers, "area")
+  
+  # Create a new column 'price_per_area' that calculates price per area
+  feature_summary <- data_no_outliers %>%
+    filter(category %in% categories) %>%  # Filter by the given categories
+    mutate(price_per_area = price / area) %>%  # Create new column for price per area
+    group_by(!!sym(feature), category) %>%
+    summarise(avg_price_per_area = mean(price_per_area, na.rm = TRUE), .groups = "drop")
+  
+  # Plot the average price per area for the specified feature and categories
+  ggplot(feature_summary, aes(x = factor(category), y = avg_price_per_area, fill = factor(!!sym(feature)))) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = paste("متوسط السعر لكل متر مربع حسب", feature, "للفئة", paste(categories)),
+         x = "الفئة",
+         y = "متوسط السعر لكل متر مربع (ر.س/m²)") +
+    scale_fill_manual(values = c("lightcoral", "gray"), 
+                      labels = c("متوفر", "غير متوفر")) +
+    scale_y_continuous(labels = label_comma()) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x labels for readability
+}
+
+# Example usage:
+
+# Plot for 'furnished' feature
+plot_price_per_area(data_riyadh, "furnished", 3)
+
+# Plot for another feature, say 'water_availability'
+plot_price_per_area(data_riyadh, "water_availability", 3)
+
+# Plot for another feature, say 'electrical_availability'
+plot_price_per_area(data_riyadh, "electrical_availability", 3)
+
+# Plot for another feature, say 'drainage_availability'
+plot_price_per_area(data_riyadh, "drainage_availability", 3)
+
+
+```
+
+**Is the annual rent cheaper than monthly rent?, and what is the
+difference?**
+
+```{r   shaddan2 }
+yearr <- data %>%
+  filter(city == "الرياض", rent_period == 3) %>%
+  mutate(price_per_month = price / 12)
+
+monthh <- data %>%
+  filter(city == "الرياض", rent_period == 2)
+
+
+# Remove outliers for both datasets
+yearr_no_outliers <- remove_outliers(yearr, "price_per_month")
+monthh_no_outliers <- remove_outliers(monthh, "price")
+
+mean_yearr <- mean(yearr_no_outliers$price_per_month, na.rm = TRUE)
+mean_monthh <- mean(monthh_no_outliers$price, na.rm = TRUE)
+
+# Create a data frame for plotting
+mean_values <- data.frame(
+    Dataset = c("الايجار السنوي بالشهر", "الايجار الشهري"),
+  Mean_Price = c(mean_yearr, mean_monthh)
+)
+
+ggplot(mean_values, aes(x = Dataset, y = Mean_Price, fill = Dataset)) +
+  geom_bar(stat = "identity") +
+  labs(title = "مقارنة بين متوسط اسعار الشقق", 
+       x = "Dataset", 
+       y = "Mean Price") +
+  theme_minimal()
+
+
+# Filter the data for yearly and monthly rent periods, and compute price per square meter
+yearr <- data %>%
+  filter(city == "الرياض", rent_period == 3) %>%
+  mutate(price = price / 12)%>% # Price per square meter
+  mutate(price_per_square_meter = price / area)
+monthh <- data %>%
+  filter(city == "الرياض", rent_period == 2) %>%
+  mutate(price_per_square_meter = price / area)  # Price per square meter
+
+# Remove outliers for both datasets
+yearr_no_outliers <- remove_outliers(yearr, "price_per_square_meter")
+monthh_no_outliers <- remove_outliers(monthh, "price_per_square_meter")
+
+# Calculate the mean price per square meter for each dataset (after removing outliers)
+mean_yearr <- mean(yearr_no_outliers$price_per_square_meter, na.rm = TRUE)
+mean_monthh <- mean(monthh_no_outliers$price_per_square_meter, na.rm = TRUE)
+
+# Create a data frame for plotting
+mean_values <- data.frame(
+  Dataset = c("ايجار سنوي مقسوم للشهر", "ايجار شهري"),
+  Mean_Price = c(mean_yearr, mean_monthh)
+)
+
+# Create a bar plot comparing the mean prices
+ggplot(mean_values, aes(x = Dataset, y = Mean_Price, fill = Dataset)) +
+  geom_bar(stat = "identity") +
+  labs(title = "مقارنة بين متوسط اسعار الشقق ل كل متر مربع", 
+       x = "النوع", 
+       y = "متوسط السعر لكل متر مربع") +
+  theme_minimal()
+
+
+
+```
+
+**Does the area (in square meters) affect the price?**
+
+```{r   mozn18 }
+Westriyadhmeans <- Westriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+Centralriyadhmeans <- Centralriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+eastriyadhmeans <- eastriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+Southriyadhmeans <- Southriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+northriyadhmeans <- northriyadh %>%
+  group_by(district) %>%
+  summarise(mean_price = mean(price))
+
+districts_west <- Westriyadhmeans$district
+mean_prices_west <- Westriyadhmeans$mean_price
+barplot(mean_prices_west, names.arg = districts_west, col = "lightcoral", main = "متوسط السعر حسب الحي في غرب الرياض", xlab = "الحي", ylab = "متوسط السعر", las = 2)
+
+districts_central <- Centralriyadhmeans$district
+mean_prices_central <- Centralriyadhmeans$mean_price
+barplot(mean_prices_central, names.arg = districts_central, col = "lightcoral", main = "متوسط السعر حسب الحي في وسط الرياض", xlab = "الحي", ylab = "متوسط السعر", las = 2)
+
+districts_east <- eastriyadhmeans$district
+mean_prices_east <- eastriyadhmeans$mean_price
+barplot(mean_prices_east, names.arg = districts_east, col = "lightcoral", main = "متوسط السعر حسب الحي في شرق الرياض", xlab = "الحي", ylab = "متوسط السعر", las = 2)
+
+districts_south <- Southriyadhmeans$district
+mean_prices_south <- Southriyadhmeans$mean_price
+barplot(mean_prices_south, names.arg = districts_south, col = "lightcoral", main = "متوسط السعر حسب الحي في جنوب الرياض", xlab = "الحي", ylab = "متوسط السعر", las = 2)
+
+districts_north <- northriyadhmeans$district
+mean_prices_north <- northriyadhmeans$mean_price
+barplot(mean_prices_north, names.arg = districts_north, col = "lightcoral", main = "متوسط السعر حسب الحي في شمال الرياض", xlab = "الحي", ylab = "متوسط السعر", las = 2)
+
+df=read_csv("akar2024.csv")
+
+area <- subset(df, city == "الرياض" & rent_period == 3.0 & category == 1)
+area <- area[, c("price", "area", "district", "direction")]
+riyadharean <- subset(area, direction == "شمال الرياض")
+riyadharean$price_per_area <- riyadharean$price / riyadharean$area
+avedis <- aggregate(price_per_area ~ district, data = riyadharean, FUN = mean)
+
+library(ggplot2)
+ggplot(avedis, aes(x = reorder(district, price_per_area), y = price_per_area)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(title = "متوسط سعر المتر المربع في شمال الرياض",
+       x = "الأحياء",
+       y = "متوسط سعر المتر المربع (ريال)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme_minimal() +
+  coord_flip() +
+  theme(axis.title.x = element_text(hjust = 0.5))
+
+average <- mean(riyadharean$price_per_area, na.rm = TRUE)
+cat("متوسط سعر المتر المربع في شمال الرياض هو:", average, "ريال\n")
+
+east_riyadh <- subset(area, direction == "شرق الرياض")
+east_riyadh$price_per_area <- east_riyadh$price / east_riyadh$area
+average_east <- mean(east_riyadh$price_per_area, na.rm = TRUE)
+cat("متوسط سعر المتر المربع في شرق الرياض هو:", average_east, "ريال\n")
+
+avedis_east <- aggregate(price_per_area ~ district, data = east_riyadh, mean)
+
+library(ggplot2)
+
+ggplot(avedis_east, aes(x = price_per_area, y = reorder(district, price_per_area))) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    x = "متوسط سعر المتر المربع (ريال)",
+    y = "الأحياء",
+    title = "متوسط سعر المتر المربع في شرق الرياض"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
+Central_riyadh <- subset(area, direction == "وسط الرياض")
+Central_riyadh <- Central_riyadh %>%
+  mutate(price_per_area = price / area)
+Central_riyadh <- Central_riyadh %>%
+  filter(district != "حي منفوحة")
+avedis5 <- Central_riyadh %>%
+  group_by(district) %>%
+  summarise(price_per_area = mean(price_per_area, na.rm = TRUE))
+
+ggplot(avedis5, aes(x = price_per_area, y = reorder(district, price_per_area))) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    x = "متوسط سعر المتر المربع (ريال)",
+    y = "الأحياء",
+    title = "متوسط سعر المتر المربع في وسط الرياض"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
+average_price <- mean(avedis5$price_per_area)
+cat("متوسط سعر المتر المربع في وسط الرياض هو:", average_price, "ريال\n")
+
+west_riyadh <- subset(area, direction == "غرب الرياض")
+west_riyadh$price_per_area <- west_riyadh$price / west_riyadh$area
+
+average_west <- mean(west_riyadh$price_per_area, na.rm = TRUE)
+cat("متوسط سعر المتر المربع في غرب الرياض هو:", average_west, "ريال\n")
+
+avedis_west <- west_riyadh %>%
+  group_by(district) %>%
+  summarise(price_per_area = mean(price_per_area, na.rm = TRUE))
+
+ggplot(avedis_west, aes(x = price_per_area, y = reorder(district, price_per_area))) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    x = "متوسط سعر المتر المربع (ريال)",
+    y = "الأحياء",
+    title = "متوسط سعر المتر المربع في غرب الرياض"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
+south_riyadh <- subset(area, direction == "جنوب الرياض")
+south_riyadh$price_per_area <- south_riyadh$price / south_riyadh$area
+
+average_south <- mean(south_riyadh$price_per_area, na.rm = TRUE)
+cat("متوسط سعر المتر المربع في جنوب الرياض هو:", average_south, "ريال\n")
+
+avedis_south <- south_riyadh %>%
+  group_by(district) %>%
+  summarise(price_per_area = mean(price_per_area, na.rm = TRUE))
+
+ggplot(avedis_south, aes(x = price_per_area, y = reorder(district, price_per_area))) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    x = "متوسط سعر المتر المربع (ريال)",
+    y = "الأحياء",
+    title = "متوسط سعر المتر المربع في جنوب الرياض"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
+average_prices <- data.frame(
+  المنطقة = c("شمال الرياض", "شرق الرياض", "وسط الرياض", "غرب الرياض", "جنوب الرياض"),
+  متوسط_سعر_المتر_المربع = c(average, average_east, average_price, average_west, average_south)
+)
+
+library(ggplot2)
+
+ggplot(average_prices, aes(x = المنطقة, y = متوسط_سعر_المتر_المربع)) +
+  geom_bar(stat = "identity", fill = "lightcoral") +
+  labs(
+    x = "المناطق",
+    y = "متوسط سعر المتر المربع (ريال)",
+    title = "متوسط أسعار المتر المربع في الرياض"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, family = "Arial"),
+    axis.text.y = element_text(family = "Arial"),
+    plot.title = element_text(family = "Arial", face = "bold", size = 16),
+    axis.title = element_text(family = "Arial", face = "bold", size = 14)
+  )
+
+```
+
+### part four
+
+**Who are the sellers with the best reviews?** Identifying the sellers
+with the best reviews provides valuable insights into the relationship
+between seller reputation and property prices.
+
+```{r   farrah19 }
+# Function to compare sellers by average review score for a specific category
+compare_top_sellers <- function(data, category_value, top_n = 10) {
+  
+  # Filter the data for the specific category
+  filtered_data <- data %>% filter(category == category_value)
+  
+  # Remove outliers in the 'review' column
+  filtered_data_no_outliers <- remove_outliers(filtered_data, "user.review")
+  
+  # Summarize the data by user name and category, after removing outliers
+  review_summary <- filtered_data_no_outliers %>%
+    group_by(user.name) %>%
+    summarise(avg_review = mean(user.review, na.rm = TRUE), count = n()) %>%
+    filter(count >= 10) %>%  # Filter out sellers with less than 10 records
+    arrange(desc(avg_review))
+  
+  # Get the top N districts by average review score
+  top_sellers <- head(review_summary, top_n)
+  #View(top_sellers)
+  # Plot the top N districts by average review score
+  ggplot(top_sellers, aes(x = reorder(user.name, avg_review), y = avg_review)) +
+    geom_bar(stat = "identity", fill = "lightcoral") +
+    labs(title = paste( "أفضل 20 بائع حسب متوسط ​​التقييم في ( فيلا للبيع)"), 
+         x = "Sellers", y = "Average Review Score") +
+    coord_flip() #+ 
+    #theme(axis.text.y = element_text(family = "amiri", size = 10))
+}
+
+# Example usage:
+compare_top_sellers(data_riyadh, category_value = 3, top_n = 20)
+unique(compare_top_sellers(data_riyadh, category_value = 3, top_n = 20))
+```
+
+## Interactive Maps
+
+**1- Leaflet library** This code creates an interactive map to visualize
+real estate data using the Leaflet package. It places markers at
+property locations and latitude and clusters nearby markers for better
+clarity. Each marker displays detailed property information in a popup
+when clicked, including the title, price, area, number of rooms, and
+available amenities like a pool . This allows users to explore and
+understand property details directly on the map in an intuitive and
+visually engaging way.
+
+**2- Shiny App** We built an interactive web app that enables users to
+filter real estate listings based on criteria like price, bedrooms, and
+amenities. The filtered data is shown on a map using Leaflet, with
+color-coded markers representing different price categories. Users can
+click on the markers to view detailed property information. The app
+updates in real time according to the user's selections, providing an
+easy and intuitive way to explore the listings.
+
+```{r   ftoon}
+library(readr)
+library(leaflet)
+library(dplyr)
+library(shiny)
+df=read_csv("akar2024.csv")
+
+# 1. Remove Outliers Using IQR
+remove_outliers <- function(df, columns) {
+  for (col in columns) {
+    # Calculate the IQR (Interquartile Range)
+    Q1 <- quantile(df[[col]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(df[[col]], 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    
+    # Define outlier bounds
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    
+    # Filter rows based on the outlier condition
+    df <- df[df[[col]] >= lower_bound & df[[col]] <= upper_bound, ]
+  }
+  return(df)
+}
+
+# List of numerical columns to check for outliers
+numerical_columns <- c('price', 'area', 'beds', 'wc', 'livings', 'rooms', 'age')
+
+# Apply the outlier removal function
+df <- remove_outliers(df, numerical_columns)
+
+# 2. Remove districts with fewer than 5 records
+district_counts <- table(df$district)
+valid_districts <- names(district_counts[district_counts >= 5])
+
+# Filter the dataframe to keep only valid districts
+df <- df[df$district %in% valid_districts, ]
+
+leaflet(data = df) %>%
+  addTiles() %>%
+  addMarkers(
+    lng = ~location.lng, lat = ~location.lat, 
+    clusterOptions = markerClusterOptions(),
+    popup = ~paste(
+      "<b>Title:</b>", title, "<br>",
+      "<b>Price:</b>", format(price, scientific = FALSE), "<br>",
+      "<b>Area:</b>", area, "sqm<br>",
+      "<b>Rooms:</b>", rooms, "<br>",
+      "<b>Bedrooms:</b>", beds, "<br>",
+      "<b>City:</b>", city, "<br>",
+      "<b>District:</b>", district, "<br>",
+      "<b>Furnished:</b>", ifelse(furnished == 1, "Yes", "No"), "<br>",
+      "<b>Pool:</b>", ifelse(pool == 1, "Yes", "No"), "<br>",
+      "<b>Playground:</b>", ifelse(playground == 1, "Yes", "No"), "<br>",
+      "<b>Kitchen:</b>", ifelse(ketchen == 1, "Yes", "No"), "<br>",
+      "<b>Lift:</b>", ifelse(lift == 1, "Yes", "No"), "<br>",
+      "<b>Water Availability:</b>", ifelse(water_availability == TRUE, "Yes", "No"), "<br>",
+      "<b>Electrical Availability:</b>", ifelse(electrical_availability == TRUE, "Yes", "No"), "<br>",
+      "<b>Drainage Availability:</b>", ifelse(drainage_availability == TRUE, "Yes", "No")
+    )
+  )
+
+
+# Load and preprocess the data
+df <- df %>% 
+  filter(!is.na(location.lat) & !is.na(location.lng)) %>% # Filter out rows with missing coordinates
+  mutate(price_category = cut(price, breaks = quantile(price, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE),
+                              labels = c("Low", "Medium", "High", "Very High"), include.lowest = TRUE))
+                          
+                              # Sample Data (replace df with actual data)
+                              # df <- your_data_frame
+                              
+                              # UI
+                              ui <- fluidPage(
+                                titlePanel("Real Estate Listings"),
+                                sidebarLayout(
+                                  sidebarPanel(
+                                    sliderInput("priceRange", "Price Range:", min = min(df$price, na.rm = TRUE), max = max(df$price, na.rm = TRUE), value = c(min(df$price, na.rm = TRUE), max(df$price, na.rm = TRUE))),
+                                    sliderInput("bedrooms", "Number of Bedrooms:", min = min(df$beds, na.rm = TRUE), max = max(df$beds, na.rm = TRUE), value = c(min(df$beds, na.rm = TRUE), max(df$beds, na.rm = TRUE))),
+                                    sliderInput("rooms", "Number of Rooms:", min = min(df$rooms, na.rm = TRUE), max = max(df$rooms, na.rm = TRUE), value = c(min(df$rooms, na.rm = TRUE), max(df$rooms, na.rm = TRUE))),
+                                    sliderInput("livingRooms", "Number of Living Rooms:", min = min(df$livings, na.rm = TRUE), max = max(df$livings, na.rm = TRUE), value = c(min(df$livings, na.rm = TRUE), max(df$livings, na.rm = TRUE))),
+                                    sliderInput("areaRange", "Area (sqm):", min = min(df$area, na.rm = TRUE), max = max(df$area, na.rm = TRUE), value = c(min(df$area, na.rm = TRUE), max(df$area, na.rm = TRUE))),
+                                    checkboxInput("furnished", "Furnished", value = FALSE),
+                                    checkboxGroupInput("amenities", "Amenities:", choices = c("pool", "playground", "ketchen", "lift", "water", "electricity", "drainage")),
+                                  ),
+                                  mainPanel(
+                                    leafletOutput("mapOutput")
+                                  )
+                                )
+                              )
+                              
+                              # Server
+                              server <- function(input, output, session) {
+                                # Filter data based on input
+                                filteredData <- reactive({
+                                  df %>%
+                                    filter(
+                                      price >= input$priceRange[1] & price <= input$priceRange[2],
+                                      beds >= input$bedrooms[1] & beds <= input$bedrooms[2],
+                                      rooms >= input$rooms[1] & rooms <= input$rooms[2],
+                                      livings >= input$livingRooms[1] & livings <= input$livingRooms[2],
+                                      area >= input$areaRange[1] & area <= input$areaRange[2],
+                                      if (input$furnished) furnished == 1 else TRUE,
+                                      if ("pool" %in% input$amenities) pool == 1 else TRUE,
+                                      if ("playground" %in% input$amenities) playground == 1 else TRUE,
+                                      if ("ketchen" %in% input$amenities) ketchen == 1 else TRUE,
+                                      if ("lift" %in% input$amenities) lift == 1 else TRUE,
+                                      if ("water" %in% input$amenities) water_availability == TRUE else TRUE,
+                                      if ("electricity" %in% input$amenities) electrical_availability == TRUE else TRUE,
+                                      if ("drainage" %in% input$amenities) drainage_availability == TRUE else TRUE
+                                    )
+                                })
+                                
+                                # Render the Leaflet map
+                                output$mapOutput <- renderLeaflet({
+                                  leaflet(data = filteredData()) %>%
+                                    addTiles() %>%
+                                    addCircleMarkers(
+                                      lng = ~location.lng, lat = ~location.lat,
+                                      color = ~case_when(
+                                        price_category == "Low" ~ "green",
+                                        price_category == "Medium" ~ "orange",
+                                        price_category == "High" ~ "red",
+                                        TRUE ~ "purple"
+                                      ),
+                                      radius = 5, fillOpacity = 0.8,
+                                      popup = ~paste(
+                                        "<b>Title:</b>", title, "<br>",
+                                        "<b>Price:</b>", scales::dollar(price), "<br>",
+                                        "<b>Area:</b>", area, "sqm<br>",
+                                        "<b>Rooms:</b>", rooms, "<br>",
+                                        "<b>Living Rooms:</b>", livings, "<br>",
+                                        "<b>Bedrooms:</b>", beds, "<br>",
+                                        "<b>City:</b>", city, "<br>",
+                                        "<b>District:</b>", district, "<br>",
+                                        "<b>Furnished:</b>", ifelse(furnished == 1, "Yes", "No"), "<br>",
+                                        "<b>Pool:</b>", ifelse(pool == 1, "Yes", "No"), "<br>",
+                                        "<b>Playground:</b>", ifelse(playground == 1, "Yes", "No"), "<br>",
+                                        "<b>Kitchen:</b>", ifelse(ketchen == 1, "Yes", "No"), "<br>",
+                                        "<b>Lift:</b>", ifelse(lift == 1, "Yes", "No"), "<br>",
+                                        "<b>Water Availability:</b>", ifelse(water_availability == TRUE, "Yes", "No"), "<br>",
+                                        "<b>Electrical Availability:</b>", ifelse(electrical_availability == TRUE, "Yes", "No"), "<br>",
+                                        "<b>Drainage Availability:</b>", ifelse(drainage_availability == TRUE, "Yes", "No")
+                                      )
+                                    ) %>%
+                                    addLegend("bottomright", colors = c("green", "orange", "red", "purple"),
+                                              labels = c("Low", "Medium", "High", "Very High"), title = "Price Category")
+                                })
+                              }
+                              
+                              # Run the Shiny app
+                              shinyApp(ui, server)
+
+
+```
