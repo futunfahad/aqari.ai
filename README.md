@@ -17,3 +17,6 @@ Interface: Gradio, Hugging Face
 Visualization: R (ggplot2, Leaflet, Shiny)
 
 Other: Data cleaning, outlier detection, feature engineering
+
+
+huggung face space: https://huggingface.co/spaces/futun/saudiaqar
