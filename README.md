@@ -3,13 +3,13 @@
 **An Empirical Perspective**
 
 <p align="center">
-  <a href="docs/aqariAI_Report.pdf">
+  <a href="docs/aqari.pdf">
     <img src="poster.png" alt="Aqari.ai Project Poster" width="850">
   </a>
 </p>
 
 <p align="center">
-  <em>Click the poster to view the full technical report (PDF)</em>
+  <em>Click the poster to view the full code (PDF)</em>
 </p>
 
 ---
@@ -107,7 +107,7 @@ The complete technical document includes:
 - Experimental results
 - Visual analytics
 
-📘 **[Download Full Project Report (PDF)](aqariAI_Report.pdf)**
+📘 **[Download Full Project code (PDF)](aqari.pdf)**
 
 
 
