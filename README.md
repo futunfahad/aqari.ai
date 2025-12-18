@@ -3,7 +3,7 @@
 **An Empirical Perspective**
 
 <p align="center">
-  <a href="docs/aqari.pdf">
+  <a href="aqari.pdf">
     <img src="poster.png" alt="Aqari.ai Project Poster" width="850">
   </a>
 </p>
